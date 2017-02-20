@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="ASCII"?>
+<pogoDsl:PogoSystem xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:pogoDsl="http://www.esrf.fr/tango/pogo/PogoDsl">
+  <multiClasses pogoRevision="9.1" name="Pm600" sourcePath="/home/graziano/ws/pm600/src" description="McLennan Pm600 stepper drive &amp; controller" filestogenerate="XMI   file,Code files,Protected Regions">
+    <classes classname="Rfc2217" sourcePath="../../rfc2217/src">
+      <inheritances classname="Device_Impl" sourcePath=""/>
+    </classes>
+    <classes classname="Pm600" sourcePath="./">
+      <inheritances classname="Device_Impl" sourcePath=""/>
+    </classes>
+    <preferences makefileHome="/usr/local/tango-8.1.2.c/share/pogo/preferences"/>
+  </multiClasses>
+</pogoDsl:PogoSystem>
