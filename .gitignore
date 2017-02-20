@@ -29,6 +29,8 @@
 *.app
 bin/
 
+.nse_depinfo
+
 # Eclipse
 .cproject
 .project
