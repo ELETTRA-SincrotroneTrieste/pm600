@@ -38,6 +38,7 @@ static const char *RcsId = "$Id:  $";
 //=============================================================================
 
 #include <tango.h>
+#include <Serial2Class.h>
 #include <Rfc2217Class.h>
 #include <Pm600Class.h>
 
@@ -47,6 +48,7 @@ static const char *RcsId = "$Id:  $";
 
 void Tango::DServer::class_factory()
 {
+	add_class(Serial2_ns::Serial2Class::init("Serial2"));
 	add_class(Rfc2217_ns::Rfc2217Class::init("Rfc2217"));
 	add_class(Pm600_ns::Pm600Class::init("Pm600"));
 }
