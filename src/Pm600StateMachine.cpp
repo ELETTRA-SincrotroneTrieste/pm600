@@ -130,6 +130,26 @@ bool Pm600::is_Deceleration_allowed(TANGO_UNUSED(Tango::AttReqType type))
 	return true;
 }
 
+//--------------------------------------------------------
+/**
+ *	Method      : Pm600::is_CreepSpeed_allowed()
+ *	Description : Execution allowed for CreepSpeed attribute
+ */
+//--------------------------------------------------------
+bool Pm600::is_CreepSpeed_allowed(TANGO_UNUSED(Tango::AttReqType type))
+{
+	//	Not any excluded states for CreepSpeed attribute in Write access.
+	/*----- PROTECTED REGION ID(Pm600::CreepSpeedStateAllowed_WRITE) ENABLED START -----*/
+	
+	/*----- PROTECTED REGION END -----*/	//	Pm600::CreepSpeedStateAllowed_WRITE
+
+	//	Not any excluded states for CreepSpeed attribute in read access.
+	/*----- PROTECTED REGION ID(Pm600::CreepSpeedStateAllowed_READ) ENABLED START -----*/
+	
+	/*----- PROTECTED REGION END -----*/	//	Pm600::CreepSpeedStateAllowed_READ
+	return true;
+}
+
 
 //=================================================
 //		Commands Allowed Methods

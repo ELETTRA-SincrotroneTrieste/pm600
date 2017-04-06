@@ -73,6 +73,7 @@ static const char *RcsId = "$Id:  $";
 //  Velocity      |  Tango::DevDouble	Scalar
 //  Acceleration  |  Tango::DevDouble	Scalar
 //  Deceleration  |  Tango::DevDouble	Scalar
+//  CreepSpeed    |  Tango::DevDouble	Scalar
 //================================================================
 
 namespace Pm600_ns
@@ -129,12 +130,20 @@ void Pm600::delete_device()
 	/*----- PROTECTED REGION ID(Pm600::delete_device) ENABLED START -----*/
 	
 	//	Delete device allocated objects
-	
+	loop->abortflag = true;
+	sleep(1);
+	delete mutex;
+	if (device_proxy)
+	{
+		delete device_proxy;
+		device_proxy = NULL;
+	}
 	/*----- PROTECTED REGION END -----*/	//	Pm600::delete_device
 	delete[] attr_Position_read;
 	delete[] attr_Velocity_read;
 	delete[] attr_Acceleration_read;
 	delete[] attr_Deceleration_read;
+	delete[] attr_CreepSpeed_read;
 }
 
 //--------------------------------------------------------
@@ -149,6 +158,7 @@ void Pm600::init_device()
 	/*----- PROTECTED REGION ID(Pm600::init_device_before) ENABLED START -----*/
 	
 	//	Initialization before get_device_property() call
+	consecutive_errors = 0;
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::init_device_before
 	
@@ -160,10 +170,58 @@ void Pm600::init_device()
 	attr_Velocity_read = new Tango::DevDouble[1];
 	attr_Acceleration_read = new Tango::DevDouble[1];
 	attr_Deceleration_read = new Tango::DevDouble[1];
+	attr_CreepSpeed_read = new Tango::DevDouble[1];
 	/*----- PROTECTED REGION ID(Pm600::init_device) ENABLED START -----*/
 	
 	//	Initialize device
-	
+	mutex = new omni_mutex();
+	device_proxy = new Tango::DeviceProxy(deviceName);
+	try
+	{
+		device_proxy->ping();
+	}
+	catch(Tango::DevFailed &e)
+	{
+		DEBUG_STREAM << __func__<<": error pinging, err="<<e.errors[0].desc;
+		set_state(Tango::FAULT);
+		set_status(string(e.errors[0].desc));
+		return;
+	}
+	//empty buffers
+	try
+	{
+		Tango::DeviceAttribute dattrin1("Timeout",(Tango::DevLong)5);
+		device_proxy->write_attribute(dattrin1);
+		Tango::DevLong len =  500;
+
+		Tango::DeviceData dintmp, douttmp;
+		dintmp<<len;
+		douttmp = device_proxy->command_inout("Read", dintmp);
+	}
+	catch(Tango::DevFailed &e)
+	{
+	}
+	catch(...)
+	{
+	}
+
+	try
+	{
+		Tango::DeviceAttribute dattrin2("Timeout",(Tango::DevLong)1000);
+		device_proxy->write_attribute(dattrin2);
+	}
+	catch(Tango::DevFailed &e)
+	{
+		DEBUG_STREAM << __func__<<": error setting timeout, err="<<e.errors[0].desc;
+		set_state(Tango::FAULT);
+		set_status(string(e.errors[0].desc));
+	}
+	catch(...)
+	{
+	}
+
+	loop = new readthread(this);
+	loop->start();
 	/*----- PROTECTED REGION END -----*/	//	Pm600::init_device
 }
 
@@ -185,6 +243,8 @@ void Pm600::get_device_property()
 	//	Read device properties from database.
 	Tango::DbData	dev_prop;
 	dev_prop.push_back(Tango::DbDatum("DeviceName"));
+	dev_prop.push_back(Tango::DbDatum("ControllerAddr"));
+	dev_prop.push_back(Tango::DbDatum("PositionRatio"));
 
 	//	is there at least one property to be read ?
 	if (dev_prop.size()>0)
@@ -210,6 +270,28 @@ void Pm600::get_device_property()
 		//	And try to extract DeviceName value from database
 		if (dev_prop[i].is_empty()==false)	dev_prop[i]  >>  deviceName;
 
+		//	Try to initialize ControllerAddr from class property
+		cl_prop = ds_class->get_class_property(dev_prop[++i].name);
+		if (cl_prop.is_empty()==false)	cl_prop  >>  controllerAddr;
+		else {
+			//	Try to initialize ControllerAddr from default device value
+			def_prop = ds_class->get_default_device_property(dev_prop[i].name);
+			if (def_prop.is_empty()==false)	def_prop  >>  controllerAddr;
+		}
+		//	And try to extract ControllerAddr value from database
+		if (dev_prop[i].is_empty()==false)	dev_prop[i]  >>  controllerAddr;
+
+		//	Try to initialize PositionRatio from class property
+		cl_prop = ds_class->get_class_property(dev_prop[++i].name);
+		if (cl_prop.is_empty()==false)	cl_prop  >>  positionRatio;
+		else {
+			//	Try to initialize PositionRatio from default device value
+			def_prop = ds_class->get_default_device_property(dev_prop[i].name);
+			if (def_prop.is_empty()==false)	def_prop  >>  positionRatio;
+		}
+		//	And try to extract PositionRatio value from database
+		if (dev_prop[i].is_empty()==false)	dev_prop[i]  >>  positionRatio;
+
 	}
 
 	/*----- PROTECTED REGION ID(Pm600::get_device_property_after) ENABLED START -----*/
@@ -231,7 +313,40 @@ void Pm600::always_executed_hook()
 	/*----- PROTECTED REGION ID(Pm600::always_executed_hook) ENABLED START -----*/
 	
 	//	code always executed before all requests
-	
+#if 0
+	string tstate;
+	SendReceive(GET_STATE, tstate);
+	if(tstate.length() == 8)
+	{
+		if(tstate[1] == '1')
+		{
+			set_state(Tango::FAULT);
+			set_status("Error (abort, tracking, stall, timeout etc.)");
+		}
+		else if(tstate[0] == '0' || tstate[4] == '1')
+		{
+			set_state(Tango::MOVING);
+			if(tstate[4] == '1')
+				set_status("Jogging or joystick moving");
+			else
+				set_status("Controller is busy");
+		}
+		else
+		{
+			set_state(Tango::ON);
+			if(tstate[2] == '1')
+				set_status("Upper hard limit is ON");
+			else if(tstate[3] == '1')
+				set_status("Lower hard limit is ON");
+			else
+				set_status("Controller is idle");
+		}
+	}
+	else
+	{
+		INFO_STREAM << __func__ << ": wrong status response length=" << tstate.length();
+	}
+#endif
 	/*----- PROTECTED REGION END -----*/	//	Pm600::always_executed_hook
 }
 
@@ -279,6 +394,9 @@ void Pm600::read_Position(Tango::Attribute &attr)
 {
 	DEBUG_STREAM << "Pm600::read_Position(Tango::Attribute &attr) entering... " << endl;
 	/*----- PROTECTED REGION ID(Pm600::read_Position) ENABLED START -----*/
+	double pos;
+	/*SendReceive(string(GET_COMMAND_POSITION), pos);
+	*attr_Position_read = pos*positionRatio;*/
 	//	Set the attribute value
 	attr.set_value(attr_Position_read);
 	
@@ -300,7 +418,10 @@ void Pm600::write_Position(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(Pm600::write_Position) ENABLED START -----*/
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << MOVE_ABSOLUTE << w_val/positionRatio;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::write_Position
 }
@@ -338,7 +459,10 @@ void Pm600::write_Velocity(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(Pm600::write_Velocity) ENABLED START -----*/
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << SET_VELOCITY << w_val/positionRatio;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::write_Velocity
 }
@@ -376,7 +500,10 @@ void Pm600::write_Acceleration(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(Pm600::write_Acceleration) ENABLED START -----*/
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << SET_ACCELERATION << w_val/positionRatio;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::write_Acceleration
 }
@@ -414,9 +541,53 @@ void Pm600::write_Deceleration(Tango::WAttribute &attr)
 	Tango::DevDouble	w_val;
 	attr.get_write_value(w_val);
 	/*----- PROTECTED REGION ID(Pm600::write_Deceleration) ENABLED START -----*/
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << SET_DECELERATION << w_val/positionRatio;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::write_Deceleration
+}
+//--------------------------------------------------------
+/**
+ *	Read attribute CreepSpeed related method
+ *	Description: The speed at which moves with a non-zero creep distance will stop
+ *
+ *	Data type:	Tango::DevDouble
+ *	Attr type:	Scalar
+ */
+//--------------------------------------------------------
+void Pm600::read_CreepSpeed(Tango::Attribute &attr)
+{
+	DEBUG_STREAM << "Pm600::read_CreepSpeed(Tango::Attribute &attr) entering... " << endl;
+	/*----- PROTECTED REGION ID(Pm600::read_CreepSpeed) ENABLED START -----*/
+	//	Set the attribute value
+	attr.set_value(attr_CreepSpeed_read);
+	
+	/*----- PROTECTED REGION END -----*/	//	Pm600::read_CreepSpeed
+}
+//--------------------------------------------------------
+/**
+ *	Write attribute CreepSpeed related method
+ *	Description: The speed at which moves with a non-zero creep distance will stop
+ *
+ *	Data type:	Tango::DevDouble
+ *	Attr type:	Scalar
+ */
+//--------------------------------------------------------
+void Pm600::write_CreepSpeed(Tango::WAttribute &attr)
+{
+	DEBUG_STREAM << "Pm600::write_CreepSpeed(Tango::WAttribute &attr) entering... " << endl;
+	//	Retrieve write value
+	Tango::DevDouble	w_val;
+	attr.get_write_value(w_val);
+	/*----- PROTECTED REGION ID(Pm600::write_CreepSpeed) ENABLED START -----*/
+	string resp("NO");
+	stringstream cmd;
+	cmd << SET_CREEP_SPEED << w_val/positionRatio;
+	SendReceive(cmd.str(), resp);
+	
+	/*----- PROTECTED REGION END -----*/	//	Pm600::write_CreepSpeed
 }
 
 //--------------------------------------------------------
@@ -448,6 +619,10 @@ void Pm600::stop()
 	/*----- PROTECTED REGION ID(Pm600::stop) ENABLED START -----*/
 	
 	//	Add your own code
+	string resp("NO");
+	stringstream cmd;
+	cmd << STOP_MOTION;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::stop
 }
@@ -482,7 +657,10 @@ void Pm600::forward(Tango::DevDouble argin)
 	/*----- PROTECTED REGION ID(Pm600::forward) ENABLED START -----*/
 	
 	//	Add your own code
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << MOVE_ABSOLUTE << argin;
+	SendReceive(cmd.str(), resp);
 	/*----- PROTECTED REGION END -----*/	//	Pm600::forward
 }
 //--------------------------------------------------------
@@ -499,7 +677,10 @@ void Pm600::backward(Tango::DevDouble argin)
 	/*----- PROTECTED REGION ID(Pm600::backward) ENABLED START -----*/
 	
 	//	Add your own code
-	
+	string resp("NO");
+	stringstream cmd;
+	cmd << MOVE_ABSOLUTE << -argin;
+	SendReceive(cmd.str(), resp);
 	/*----- PROTECTED REGION END -----*/	//	Pm600::backward
 }
 //--------------------------------------------------------
@@ -516,6 +697,10 @@ void Pm600::reset()
 	/*----- PROTECTED REGION ID(Pm600::reset) ENABLED START -----*/
 	
 	//	Add your own code
+	string resp("NO");
+	stringstream cmd;
+	cmd << RESET_CONTROLLER;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::reset
 }
@@ -532,6 +717,22 @@ void Pm600::go_home()
 	/*----- PROTECTED REGION ID(Pm600::go_home) ENABLED START -----*/
 	
 	//	Add your own code
+	string resp("NO");
+	stringstream cmd;
+	//a: 0=Encoder index input polarity is normal
+	//b: 0==Datum point is captured only once
+	//c: 1=Datum position is set to home position (SH) after datum search (HD)
+	//d: 0=Automatic search direction disabled
+	//e: 0=Automatic opposit limit search disabled
+	//f: Reserved for future use
+	//g: Reserved for future use
+	//h: Reserved for future use
+	cmd << SET_DATUM_MODE << "00100000";
+	SendReceive(cmd.str(), resp);
+
+	cmd.str("");
+	cmd << DATUM_SEARCH;
+	SendReceive(cmd.str(), resp);
 	
 	/*----- PROTECTED REGION END -----*/	//	Pm600::go_home
 }
@@ -554,6 +755,202 @@ void Pm600::add_dynamic_commands()
 /*----- PROTECTED REGION ID(Pm600::namespace_ending) ENABLED START -----*/
 
 //	Additional Methods
+void Pm600::SendReceive(const string & command, string & response)
+{
+	char cmd[64];
+	memset(cmd,0,64);
+	sprintf(cmd, "%d%s",controllerAddr,command.c_str());
+	mutex->lock();
+#if 0
+	//emptying buffer
+	try
+	{
+		Tango::DeviceAttribute dattrin("Timeout",(Tango::DevLong)1);
+		device_proxy->write_attribute(dattrin);
+		Tango::DevLong len = 100;
+
+		Tango::DeviceData din2, dout;
+		din2 << len;
+
+		const Tango::DevVarCharArray *dtr;
+		dout = device_proxy->command_inout("Read", din2);
+		dout >> dtr;
+	}
+	catch(Tango::DevFailed &e)
+	{
+	}
+	catch(...)
+	{
+	}
+#endif
+	try
+	{
+
+		{
+			Tango::DeviceAttribute dattrin("Timeout",(Tango::DevLong)5);
+			device_proxy->write_attribute(dattrin);
+
+			Tango::DevVarCharArray dvca;
+			dvca.length(strlen(cmd)+2);
+			for (unsigned int i=0; i<strlen(cmd); ++i)
+				dvca[i] = cmd[i];
+			dvca[strlen(cmd)] = '\r';
+			dvca[strlen(cmd)+1] = '\n';
+
+			Tango::DeviceData din;
+			din << dvca;
+			device_proxy->command_inout("Write", din);
+		}
+
+		DEBUG_STREAM << __func__<<": sent command: " << cmd;
+
+		if(response != "NO")
+		{
+			Tango::DeviceData din2, dout;
+
+			{
+				Tango::DeviceAttribute dattrin("Timeout",(Tango::DevLong)1);
+				device_proxy->write_attribute(dattrin);
+				Tango::DevVarCharArray *delim =  new Tango::DevVarCharArray();
+				delim->length(1);
+				(*delim)[0] = '\n';
+				//(*delim)[0] = '\r';	//sometimes \n after \r is missing
+				din2 << delim;
+			}
+			usleep(70000);	//60ms
+			bool parsing_error = false;
+			int count = 0;
+			do
+			{
+			char cmd_parsing[64];
+			strncpy(cmd_parsing,cmd, 64);
+			if(cmd_parsing[strlen(cmd_parsing)-1] == '?')
+				cmd_parsing[strlen(cmd_parsing)-1] = 0;
+			count++;
+			string resp;
+
+			{
+				const Tango::DevVarCharArray *dtr;
+				dout = device_proxy->command_inout("ReadUntil", din2);
+				dout >> dtr;
+
+				for (unsigned int i=0; i<dtr->length(); ++i)
+					resp += (*dtr)[i];
+			}
+			if(resp.find(cmd_parsing) == string::npos)
+			{
+				DEBUG_STREAM << __func__<<": NOT found command '" << cmd_parsing << "' in response='"<<resp << "'";
+				parsing_error = true;
+				continue;
+			}
+			resp = string("");
+			{
+				const Tango::DevVarCharArray *dtr;
+				dout = device_proxy->command_inout("ReadUntil", din2);
+				dout >> dtr;
+
+				for (unsigned int i=0; i<dtr->length(); ++i)
+					resp += (*dtr)[i];
+			}
+			DEBUG_STREAM << __func__<<": read response='"<<resp << "'";
+			char parsed_resp[256];
+			//strcat(cmd, "%[^\r]\n");
+			/*if(cmd_parsing[strlen(cmd_parsing)-1] == '?')
+				cmd_parsing[strlen(cmd_parsing)-1] = 0;
+
+			size_t pos = resp.find(cmd_parsing);
+			if(pos != string::npos && pos > 0)
+			{
+				resp = resp.substr(pos);
+				DEBUG_STREAM << __func__<<": 2! pos="<<pos<<" read response='"<<resp << "'";
+			}*/
+
+			char resp_parsing[64];
+			sprintf(resp_parsing, "%d:%[^\r]",controllerAddr);
+			DEBUG_STREAM << __func__<<": trying sscanf('"<<resp_parsing << "')";
+			int ret = sscanf (resp.c_str(), resp_parsing, parsed_resp);
+			if(ret == 1)
+			{
+				response = string(parsed_resp);
+				parsing_error = false;
+				break;
+			}
+			else
+			{
+				sprintf(resp_parsing, ":%[^\r]");
+				DEBUG_STREAM << __func__<<": trying sscanf('"<<resp_parsing << "')";
+				ret = sscanf (resp.c_str(), resp_parsing, parsed_resp);
+				if(strlen(parsed_resp) > 0)
+				{
+					response = string(parsed_resp);
+					parsing_error = false;
+					break;
+				}
+				else
+				{
+					sprintf(resp_parsing, "%02d:%[^\r]",controllerAddr);
+					DEBUG_STREAM << __func__<<": trying sscanf('"<<resp_parsing << "')";
+					ret = sscanf (resp.c_str(), resp_parsing, parsed_resp);
+					if(strlen(parsed_resp) > 0)
+					{
+						response = string(parsed_resp);
+						parsing_error = false;
+						break;
+					}
+					else
+					{
+						INFO_STREAM << __func__ << ": ERROR parsing response";
+						parsing_error = true;
+					}
+				}
+			}
+
+			} while(parsing_error && count < 3);
+		}
+		else
+		{
+			response = string("");
+		}
+		consecutive_errors = 0;
+	}
+	catch(Tango::DevFailed &e)
+	{
+		stringstream err;
+		err << "Error sending command '" << command << "': '" << e.errors[0].desc << "'";
+		INFO_STREAM << __func__ << ": " << err.str();
+		response = string("");
+		consecutive_errors++;
+		if(consecutive_errors > 2)
+		{
+			set_state(Tango::FAULT);
+			set_status(err.str());
+		}
+		usleep(100000);
+	}
+	catch(...)
+	{
+		INFO_STREAM << __func__<<": NON Tango Exception sending command";
+	}
+	mutex->unlock();
+}
+
+void Pm600::SendReceive(const string & command, int & val)
+{
+	string response;
+	SendReceive(command, response);
+	stringstream tmp;
+	tmp << response;
+	tmp >> val;
+}
+
+void Pm600::SendReceive(const string & command, double & val)
+{
+	string response;
+	SendReceive(command, response);
+	stringstream tmp;
+	tmp << response;
+	tmp >> val;
+}
 
 /*----- PROTECTED REGION END -----*/	//	Pm600::namespace_ending
 } //	namespace

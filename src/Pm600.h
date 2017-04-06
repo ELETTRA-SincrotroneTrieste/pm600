@@ -39,6 +39,41 @@
 #define Pm600_H
 
 #include <tango.h>
+#include <readthread.h>
+
+#define GET_VERSION				"VE"
+
+#define GET_STATE				"OS"
+#define GET_ACTUAL_POSITION		"OA"
+#define GET_COMMAND_POSITION	"OC"
+#define GET_INPUT_POSITION		"OI"
+#define GET_VELOCITY			"OV" //current velocity
+
+#define QUERY_POSITIONS			"QP" //eg 01:CP = 0  AP = 0  IP = 0  TP = 0  OD = None
+#define QUERY_SPEEDS			"QS" //eg 01:SC = 800  SV = 1000  SA = 2000  SD = 3000  LD = 50000
+
+#define SET_ACTUAL_POSITION		"AP"
+#define SET_COMMAND_POSITION	"CP"
+#define SET_INPUT_POSITION		"IP"
+#define SET_HOME_POSITION		"SH"
+
+#define SET_ACCELERATION		"SA"
+#define SET_DECELERATION		"SD"
+#define SET_VELOCITY			"SV"
+#define SET_CREEP_SPEED			"SC"
+
+#define SET_ENODER_RATIO		"ER"
+#define SET_GEARBOX_RATIO		"GR"
+
+#define SET_DATUM_MODE			"DM"	//homing parameters, 1DM00100000 = default
+
+
+#define MOVE_ABSOLUTE			"MA"
+#define MOVE_RELATIVE			"MR"
+#define STOP_MOTION				"ST"
+#define RESET_CONTROLLER		"RS"
+#define ENABLE					"MM"
+#define DATUM_SEARCH			"HD"
 
 
 /*----- PROTECTED REGION END -----*/	//	Pm600.h
@@ -62,6 +97,10 @@ class Pm600 : public TANGO_BASE_CLASS
 /*----- PROTECTED REGION ID(Pm600::Data Members) ENABLED START -----*/
 
 //	Add your own data members
+	Tango::DeviceProxy *device_proxy;
+	readthread *loop;
+	omni_mutex *mutex;
+	int consecutive_errors;
 
 /*----- PROTECTED REGION END -----*/	//	Pm600::Data Members
 
@@ -69,6 +108,10 @@ class Pm600 : public TANGO_BASE_CLASS
 public:
 	//	DeviceName:	serial device
 	string	deviceName;
+	//	ControllerAddr:	
+	Tango::DevLong	controllerAddr;
+	//	PositionRatio:	
+	Tango::DevDouble	positionRatio;
 
 //	Attribute data members
 public:
@@ -76,6 +119,7 @@ public:
 	Tango::DevDouble	*attr_Velocity_read;
 	Tango::DevDouble	*attr_Acceleration_read;
 	Tango::DevDouble	*attr_Deceleration_read;
+	Tango::DevDouble	*attr_CreepSpeed_read;
 
 //	Constructors and destructors
 public:
@@ -184,6 +228,16 @@ public:
 	virtual void read_Deceleration(Tango::Attribute &attr);
 	virtual void write_Deceleration(Tango::WAttribute &attr);
 	virtual bool is_Deceleration_allowed(Tango::AttReqType type);
+/**
+ *	Attribute CreepSpeed related methods
+ *	Description: The speed at which moves with a non-zero creep distance will stop
+ *
+ *	Data type:	Tango::DevDouble
+ *	Attr type:	Scalar
+ */
+	virtual void read_CreepSpeed(Tango::Attribute &attr);
+	virtual void write_CreepSpeed(Tango::WAttribute &attr);
+	virtual bool is_CreepSpeed_allowed(Tango::AttReqType type);
 
 
 	//--------------------------------------------------------
@@ -258,6 +312,9 @@ public:
 /*----- PROTECTED REGION ID(Pm600::Additional Method prototypes) ENABLED START -----*/
 
 //	Additional Method prototypes
+	void SendReceive(const string & command, string & response);
+	void SendReceive(const string & command, int & val);
+	void SendReceive(const string & command, double & val);
 
 /*----- PROTECTED REGION END -----*/	//	Pm600::Additional Method prototypes
 };

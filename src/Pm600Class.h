@@ -119,6 +119,21 @@ public:
 		{return (static_cast<Pm600 *>(dev))->is_Deceleration_allowed(ty);}
 };
 
+//	Attribute CreepSpeed class definition
+class CreepSpeedAttrib: public Tango::Attr
+{
+public:
+	CreepSpeedAttrib():Attr("CreepSpeed",
+			Tango::DEV_DOUBLE, Tango::READ_WRITE) {};
+	~CreepSpeedAttrib() {};
+	virtual void read(Tango::DeviceImpl *dev,Tango::Attribute &att)
+		{(static_cast<Pm600 *>(dev))->read_CreepSpeed(att);}
+	virtual void write(Tango::DeviceImpl *dev,Tango::WAttribute &att)
+		{(static_cast<Pm600 *>(dev))->write_CreepSpeed(att);}
+	virtual bool is_allowed(Tango::DeviceImpl *dev,Tango::AttReqType ty)
+		{return (static_cast<Pm600 *>(dev))->is_CreepSpeed_allowed(ty);}
+};
+
 
 //=========================================
 //	Define classes for commands

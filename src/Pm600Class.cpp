@@ -354,6 +354,33 @@ void Pm600Class::set_default_property()
 	}
 	else
 		add_wiz_dev_prop(prop_name, prop_desc);
+	prop_name = "ControllerAddr";
+	prop_desc = "";
+	prop_def  = "";
+	vect_data.clear();
+	if (prop_def.length()>0)
+	{
+		Tango::DbDatum	data(prop_name);
+		data << vect_data ;
+		dev_def_prop.push_back(data);
+		add_wiz_dev_prop(prop_name, prop_desc,  prop_def);
+	}
+	else
+		add_wiz_dev_prop(prop_name, prop_desc);
+	prop_name = "PositionRatio";
+	prop_desc = "";
+	prop_def  = "1";
+	vect_data.clear();
+	vect_data.push_back("1");
+	if (prop_def.length()>0)
+	{
+		Tango::DbDatum	data(prop_name);
+		data << vect_data ;
+		dev_def_prop.push_back(data);
+		add_wiz_dev_prop(prop_name, prop_desc,  prop_def);
+	}
+	else
+		add_wiz_dev_prop(prop_name, prop_desc);
 }
 
 //--------------------------------------------------------
@@ -653,6 +680,30 @@ void Pm600Class::attribute_factory(vector<Tango::Attr *> &att_list)
 	deceleration->set_disp_level(Tango::OPERATOR);
 	//	Not Memorized
 	att_list.push_back(deceleration);
+
+	//	Attribute : CreepSpeed
+	CreepSpeedAttrib	*creepspeed = new CreepSpeedAttrib();
+	Tango::UserDefaultAttrProp	creepspeed_prop;
+	creepspeed_prop.set_description("The speed at which moves with a non-zero creep distance will stop");
+	//	label	not set for CreepSpeed
+	//	unit	not set for CreepSpeed
+	//	standard_unit	not set for CreepSpeed
+	//	display_unit	not set for CreepSpeed
+	//	format	not set for CreepSpeed
+	//	max_value	not set for CreepSpeed
+	//	min_value	not set for CreepSpeed
+	//	max_alarm	not set for CreepSpeed
+	//	min_alarm	not set for CreepSpeed
+	//	max_warning	not set for CreepSpeed
+	//	min_warning	not set for CreepSpeed
+	//	delta_t	not set for CreepSpeed
+	//	delta_val	not set for CreepSpeed
+	
+	creepspeed->set_default_properties(creepspeed_prop);
+	//	Not Polled
+	creepspeed->set_disp_level(Tango::OPERATOR);
+	//	Not Memorized
+	att_list.push_back(creepspeed);
 
 
 	//	Create a list of static attributes
